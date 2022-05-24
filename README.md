@@ -27,7 +27,7 @@ The generated data file is a JSON array containing country objects in the follow
         regions: [ // array of region objects belonging to this country
             {
                 country: string // the parent country's ISO-3166-1 Alpha 2 country code
-                iso: string // ISO-3166-2 administrative division code
+                iso: string // ISO-3166-2 subdivision code
                 fips: string // fips region code
                 gn: string // geonames region code,
                 wiki: string // wikipedia page id
