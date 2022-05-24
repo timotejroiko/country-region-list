@@ -1,0 +1,25 @@
+{
+  "name": "country-region-list",
+  "version": "1.0.0",
+  "description": "List of countries and subdivisions in all languages",
+  "main": "data.json",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "node ./build.js"
+  },
+  "keywords": [
+    "ISO-3166-1",
+    "ISO-3166-2",
+    "ISO 639-1",
+    "countries",
+    "regions",
+    "subdivisions",
+    "languages"
+  ],
+  "author": "Timotej Valentin Rojko",
+  "license": "MIT",
+  "devDependencies": {
+    "he": "^1.2.0",
+    "undici": "^5.2.0"
+  }
+}
