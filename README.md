@@ -21,7 +21,7 @@ The generated data file is a JSON array containing country objects in the follow
         wiki: string // wikipedia page id
         names: string[] // array of names for this country, deduplicated, all languages plus unofficial names
         langs: { // object of available languages with 2-digit ISO 639-1 codes as keys
-            <lang>: number, // values are indexes for finding the correct name in the names array
+            <lang>: number, // values are indexes linking to the correct name in the names array
             ...
         }
         regions: [ // array of region objects belonging to this country
@@ -32,7 +32,7 @@ The generated data file is a JSON array containing country objects in the follow
                 wiki: string // wikipedia page id
                 names: string[] // array of names for this region, deduplicated, all languages
                 langs: { // object of available languages with 2-digit ISO 639-1 codes as keys
-                    <lang>: number, // values are indexes for finding the correct name in the names array
+                    <lang>: number, // values are indexes linking to the correct name in the names array
                     ...
                 }
             },
