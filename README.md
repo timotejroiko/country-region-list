@@ -10,7 +10,7 @@ Some disputed regions such as Taiwan, Kosovo, etc... Are included both as an ind
 
 The generated data file is a JSON array containing country objects in the following format:
 
-```js
+```groovy
 [
     {
         iso: string // ISO-3166-1 Alpha 2 country code
