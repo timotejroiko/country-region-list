@@ -4,6 +4,7 @@ const { writeFileSync } = require("node:fs");
 const { decode } = require("he");
 
 const undici = require("undici");
+const {gzipSync} = require("node:zlib");
 
 const agent = new undici.Agent({
 	bodyTimeout: 300000,
@@ -29,6 +30,7 @@ const missing = { // wikipedia links for missing regions
 	"CV.B": "Barlavento_Islands",
 	"CV.S": "Sotavento_Islands",
 	"ET.SI": "Sidama_Region",
+	"ET.SW": "South_West_Ethiopia_Peoples'_Region",
 	"FI.01": "Åland",
 	"FR.BL": "Saint_Barthélemy",
 	"FR.CP": "Clipperton_Island",
@@ -86,6 +88,7 @@ const missing = { // wikipedia links for missing regions
 	"IO.PB": "Peros_Banhos",
 	"IO.SI": "Salomon_Islands",
 	"IO.TB": "Three_Brothers,_Chagos",
+	"IS.STY": "Stykkishólmur",
 	"KN.K": "Saint_Kitts",
 	"KN.N": "Nevis",
 	"MC.CL": "La_Colle,_Monaco",
@@ -109,7 +112,6 @@ const missing = { // wikipedia links for missing regions
 	"MH.T": "Ratak",
 	"NO.22": "Jan_Mayen",
 	"NO.21": "Svalbard",
-	"PA.NT": "Naso_Tjër_Di_Comarca",
 	"RS.KM": "Kosovo",
 	"RS.25": "Kosovo_District",
 	"RS.26": "Peć_District_(Serbia)",
@@ -185,14 +187,17 @@ request("https://www.geonames.org/countries/").then(x => x.body.text()).then(asy
 			region.country = row.iso;
 			region.names = [];
 			region.langs = {};
+			const m = missing[`${row.iso}.${region.iso}`];
 			if(!region.wiki) {
 				if(!region.iso) { continue; } // invalid regions
 				if(row.iso === "BE" && region.iso === "BRU") { continue; } // duplicate region
-				region.wiki = missing[`${row.iso}.${region.iso}`];
-			}
-			if(!region.wiki) {
-				console.log("missing wikipedia link", region);
-				continue;
+				if(!m) {
+					console.log("missing wikipedia link", region);
+					continue;
+				}
+				region.wiki = m;
+			} else if(m) {
+				console.log("wikipedia link not missing anymore", region);
 			}
 			const translations = await request(`https://en.wikipedia.org/w/api.php?action=query&titles=${region.wiki}&prop=langlinks&lllimit=500&format=json&redirects`).then(x => x.body.json());
 			const page = Object.values(translations.query.pages)[0];
@@ -210,7 +215,10 @@ request("https://www.geonames.org/countries/").then(x => x.body.text()).then(asy
 		row.regions = admin;
 		countries.push(row);
 	}
-	writeFileSync("./data.json", JSON.stringify(countries));
+	writeFileSync("./build/countries.json", JSON.stringify(countries, null, "\t"));
+	writeFileSync("./build/countries.min.json", JSON.stringify(countries));
+	writeFileSync("./build/countries.min.json.gz", gzipSync(JSON.stringify(countries)));
+	console.log("Finished", `Total Countries: ${countries.length}`, `Total Regions: ${countries.reduce((a, t) => a + t.regions.length, 0)}`);
 });
 
 function parseCountries(html) {
