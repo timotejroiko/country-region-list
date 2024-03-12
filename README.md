@@ -70,9 +70,9 @@ If you find any issue with the build script feel free to open an issue.
 
 ## Current Build
 
-Build Date: 01/03/2023
-Countries: 250
-Regions: 5568
-Size: 11 MB
-Minified : 7.8 MB
-Gzipped: 2.2 MB
+Build Date: 11/03/2024  
+Countries: 250  
+Regions: 5573  
+Size: 11,201 KB  
+Minified : 7,932 KB  
+Gzipped: 2,302 KB  

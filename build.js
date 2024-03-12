@@ -4,16 +4,20 @@ const { writeFileSync } = require("node:fs");
 const { decode } = require("he");
 
 const undici = require("undici");
-const {gzipSync} = require("node:zlib");
+const { gzipSync } = require("node:zlib");
 
 const agent = new undici.Agent({
-	bodyTimeout: 300000,
-	headersTimeout: 300000,
-	keepAliveTimeout: 300000
+	keepAliveTimeout: 300000,
+	maxRedirections: 3
+
 });
 
 undici.setGlobalDispatcher(agent);
 
+/**
+ * @param {string} url
+ * @returns {ReturnType<undici.request>}
+ */
 function request(url) { // basic retry loop
 	return undici.request(url).catch(() => request(url));
 }
@@ -108,6 +112,7 @@ const missing = { // wikipedia links for missing regions
 	"MC.SP": "Municipality_of_Monaco",
 	"MC.SR": "La_Rousse",
 	"MC.VR": "Municipality_of_Monaco",
+	"ME.25": "Zeta_Municipality",
 	"MH.L": "Ralik",
 	"MH.T": "Ratak",
 	"NO.22": "Jan_Mayen",
@@ -151,7 +156,7 @@ const missing = { // wikipedia links for missing regions
 console.log("fetching country list");
 request("https://www.geonames.org/countries/").then(x => x.body.text()).then(async html => {
 	const countries = [];
-	const list = parseCountries(html);
+	const list = /** @type {List} */ (parseCountries(html));
 	console.log(`found ${list.length} countries`);
 	for(const row of list) {
 		console.log(`fetching data for ${row.iso}`);
@@ -161,9 +166,9 @@ request("https://www.geonames.org/countries/").then(x => x.body.text()).then(asy
 		const data = parseNames(othernames);
 		row.names = data.names;
 		row.langs = data.langs;
-		const translations = await request(`https://en.wikipedia.org/w/api.php?action=query&titles=${row.wiki}&prop=langlinks&lllimit=500&format=json&redirects`).then(x => x.body.json());
+		const translations = /** @type {Translations} */ (await request(`https://en.wikipedia.org/w/api.php?action=query&titles=${row.wiki}&prop=langlinks&lllimit=500&format=json&redirects`).then(x => x.body.json()));
 		const page = Object.values(translations.query.pages)[0];
-		for(const entry of [{ lang:"en", "*": page.title }, ...page.langlinks]) {
+		for(const entry of [{ lang: "en", "*": page.title }, ...page.langlinks]) {
 			const name = entry["*"];
 			const lang = entry.lang;
 			if(!row.names.includes(name)) {
@@ -174,20 +179,21 @@ request("https://www.geonames.org/countries/").then(x => x.body.text()).then(asy
 			}
 		}
 		const divisions = await request(`https://www.geonames.org/${row.iso}/administrative-division-${row.geonames}.html`).then(x => x.body.text());
-		const admin = parseDivisions(divisions);
+		const admin = /** @type {Divisions} */ (parseDivisions(divisions));
 		if(row.iso === "MC") { // unofficial region used by geonames
 			admin.push({
 				iso: null,
 				fips: null,
 				gn: "00",
 				wiki: "Municipality_of_Monaco"
-			})
+			});
 		}
 		for(const region of admin) {
 			region.country = row.iso;
 			region.names = [];
 			region.langs = {};
-			const m = missing[`${row.iso}.${region.iso}`];
+			const k = /** @type {keyof missing} */ (`${row.iso}.${region.iso}`);
+			const m = missing[k];
 			if(!region.wiki) {
 				if(!region.iso) { continue; } // invalid regions
 				if(row.iso === "BE" && region.iso === "BRU") { continue; } // duplicate region
@@ -199,9 +205,9 @@ request("https://www.geonames.org/countries/").then(x => x.body.text()).then(asy
 			} else if(m) {
 				console.log("wikipedia link not missing anymore", region);
 			}
-			const translations = await request(`https://en.wikipedia.org/w/api.php?action=query&titles=${region.wiki}&prop=langlinks&lllimit=500&format=json&redirects`).then(x => x.body.json());
-			const page = Object.values(translations.query.pages)[0];
-			for(const entry of [{ lang:"en", "*": page.title }, ...(page.langlinks || [])]) {
+			const translations2 = /** @type {Translations} */ (await request(`https://en.wikipedia.org/w/api.php?action=query&titles=${region.wiki}&prop=langlinks&lllimit=500&format=json&redirects`).then(x => x.body.json()));
+			const page2 = Object.values(translations2.query.pages)[0];
+			for(const entry of [{ lang: "en", "*": page2.title }, ...page2.langlinks || []]) {
 				const name = entry["*"];
 				const lang = entry.lang;
 				if(!region.names.includes(name)) {
@@ -218,9 +224,25 @@ request("https://www.geonames.org/countries/").then(x => x.body.text()).then(asy
 	writeFileSync("./build/countries.json", JSON.stringify(countries, null, "\t"));
 	writeFileSync("./build/countries.min.json", JSON.stringify(countries));
 	writeFileSync("./build/countries.min.json.gz", gzipSync(JSON.stringify(countries)));
-	console.log("Finished", `Total Countries: ${countries.length}`, `Total Regions: ${countries.reduce((a, t) => a + t.regions.length, 0)}`);
+	console.log("Finished", `Total Countries: ${countries.length}`, `Total Regions: ${countries.reduce((a, t) => a + (t.regions?.length ?? 0), 0)}`);
 });
 
+/**
+ * @typedef {(ReturnType<parseCountries>[0] & { wiki?: string, names?: string[], langs?: Record<string, number>, regions?: {}[] })[]} List
+ */
+
+/**
+ * @typedef {(ReturnType<parseDivisions>[0] & { country?: string, names?: string[], langs?: Record<string, number> })[]} Divisions
+ */
+
+/**
+ * @typedef {{ query: { pages: Record<string, { title: string, langlinks: { lang: string, "*": string }[] }> } }} Translations
+ */
+
+/**
+ * @param {string} html
+ * @returns
+ */
 function parseCountries(html) {
 	const list = [];
 	const index = html.indexOf('id="countries">');
@@ -232,18 +254,26 @@ function parseCountries(html) {
 			const iso3 = row[1] || null;
 			const ison = row[2] || null;
 			const fips = row[3] || null;
-			const geonames = row[4].slice(row[4].indexOf("/countries/") + 14, row[4].indexOf('.html'));
+			const geonames = row[4].slice(row[4].indexOf("/countries/") + 14, row[4].indexOf(".html"));
 			list.push({
-				iso, iso3, ison, fips, geonames
+				iso,
+				iso3,
+				ison,
+				fips,
+				geonames
 			});
 		}
 	}
 	return list;
 }
 
+/**
+ * @param {string} html
+ * @returns {{ names: string[], langs: Record<string, number> }}
+ */
 function parseNames(html) {
 	const list = new Set();
-	const langs = {}
+	const langs = /** @type {Record<string, *>} */ ({});
 	const index = html.indexOf('id="altnametable">');
 	const table = html.slice(index, html.indexOf("</table>", index));
 	const array = convertTable(table);
@@ -259,10 +289,14 @@ function parseNames(html) {
 	}
 	return {
 		names,
-		langs 
+		langs
 	};
 }
 
+/**
+ * @param {string} html
+ * @returns
+ */
 function parseDivisions(html) {
 	const list = [];
 	const index = html.indexOf('id="subdivtable1">');
@@ -278,15 +312,18 @@ function parseDivisions(html) {
 			const gn = filterRow(row[3]);
 			const wiki = getWikiLink(row[4]);
 			list.push({
-				iso, fips, gn, wiki
+				iso,
+				fips,
+				gn,
+				wiki
 			});
 		}
 	}
 	if(html.indexOf('id="subdivtable2">')) {
-		const index = html.indexOf('id="subdivtable2">');
-		const table = html.slice(index, html.indexOf("</table>", index));
-		const array = convertTable(table);
-		for(const row of array) {
+		const index2 = html.indexOf('id="subdivtable2">');
+		const table2 = html.slice(index2, html.indexOf("</table>", index2));
+		const array2 = convertTable(table2);
+		for(const row of array2) {
 			if(row.length) {
 				if(row[0].includes("no longer exists")) {
 					break;
@@ -296,7 +333,10 @@ function parseDivisions(html) {
 				const gn = filterRow(row[4]);
 				const wiki = getWikiLink(row[5]);
 				list.push({
-					iso, fips, gn, wiki
+					iso,
+					fips,
+					gn,
+					wiki
 				});
 			}
 		}
@@ -304,18 +344,22 @@ function parseDivisions(html) {
 	return list;
 }
 
+/**
+ * @param {string} html
+ * @returns {string[][]}
+ */
 function convertTable(html) {
 	const array = [];
 	let index = html.indexOf("<tr");
 	while(index > -1) {
 		index += 4;
-		let end = html.indexOf("</tr>", index);
+		const end = html.indexOf("</tr>", index);
 		const row = html.slice(index, end);
 		let i = row.indexOf("<td");
 		const a = [];
 		while(i > -1) {
 			i = row.indexOf(">", i) + 1;
-			let e = row.indexOf("</td>", i);
+			const e = row.indexOf("</td>", i);
 			a.push(decode(row.slice(i, e).trim()));
 			i = row.indexOf("<td", e);
 		}
@@ -325,8 +369,11 @@ function convertTable(html) {
 	return array;
 }
 
+/**
+ * @param {string} html
+ */
 function getWikiLink(html) {
-	const match = '://en.wikipedia.org/wiki/';
+	const match = "://en.wikipedia.org/wiki/";
 	const index = html.indexOf(match);
 	if(index === -1) {
 		return;
@@ -336,6 +383,9 @@ function getWikiLink(html) {
 	return html.slice(start, end);
 }
 
+/**
+ * @param {string} row
+ */
 function filterRow(row) {
 	if(!row) { return null; }
 	const index = row.indexOf(">");
