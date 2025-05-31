@@ -145,7 +145,7 @@ f("https://www.geonames.org/countries/").then(x => x.text()).then(async html => 
 	const list = /** @type {List} */ (parseCountries(html));
 	console.log(`found ${list.length} countries`);
 	for(const row of list) {
-		process.stdout.write(`\nfetching ${row.iso}`);
+		process.stdout.write(`fetching ${row.iso}...`);
 		const [geopage, othernames, divisions] = await Promise.all([
 			f(`https://www.geonames.org/countries/${row.iso}/${row.geonames}.html`).then(x => x.text()),
 			f(`https://www.geonames.org/${row.iso}/other-names-for-${row.geonames}.html`).then(x => x.text()),
@@ -168,14 +168,6 @@ f("https://www.geonames.org/countries/").then(x => x.text()).then(async html => 
 			}
 		}
 		const admin = /** @type {Divisions} */ (parseDivisions(divisions));
-		if(row.iso === "MC") { // unofficial region used by geonames
-			admin.push({
-				iso: null,
-				fips: null,
-				gn: "00",
-				wiki: "Municipality_of_Monaco"
-			});
-		}
 		await Promise.all(admin.map(async region => {
 			region.country = row.iso;
 			region.names = [];
@@ -184,7 +176,6 @@ f("https://www.geonames.org/countries/").then(x => x.text()).then(async html => 
 			const m = missing[k];
 			if(!region.wiki) {
 				if(!region.iso) { return; } // invalid regions
-				if(row.iso === "BE" && region.iso === "BRU") { return; } // duplicate region
 				if(!m) {
 					console.log("missing wikipedia link", region);
 					return;
@@ -193,7 +184,7 @@ f("https://www.geonames.org/countries/").then(x => x.text()).then(async html => 
 			} else if(m) {
 				console.log("wikipedia link not missing anymore", region);
 			}
-			process.stdout.write(` - ${region.iso || region.fips || region.gn}`);
+			process.stdout.write(` ${region.iso || region.fips || region.gn}`);
 			const translations2 = /** @type {Translations} */ (await f(`https://en.wikipedia.org/w/api.php?action=query&titles=${region.wiki}&prop=langlinks&lllimit=500&format=json&redirects`).then(x => x.json()));
 			const page2 = Object.values(translations2.query.pages)[0];
 			for(const entry of [{ lang: "en", "*": page2.title }, ...page2.langlinks || []]) {
@@ -207,39 +198,9 @@ f("https://www.geonames.org/countries/").then(x => x.text()).then(async html => 
 				}
 			}
 		}));
-		// for(const region of admin) {
-		// 	region.country = row.iso;
-		// 	region.names = [];
-		// 	region.langs = {};
-		// 	const k = /** @type {keyof missing} */ (`${row.iso}.${region.iso}`);
-		// 	const m = missing[k];
-		// 	if(!region.wiki) {
-		// 		if(!region.iso) { continue; } // invalid regions
-		// 		if(row.iso === "BE" && region.iso === "BRU") { continue; } // duplicate region
-		// 		if(!m) {
-		// 			console.log("missing wikipedia link", region);
-		// 			continue;
-		// 		}
-		// 		region.wiki = m;
-		// 	} else if(m) {
-		// 		console.log("wikipedia link not missing anymore", region);
-		// 	}
-		// 	process.stdout.write(` ${region.iso || region.fips || region.gn}`);
-		// 	const translations2 = /** @type {Translations} */ (await f(`https://en.wikipedia.org/w/api.php?action=query&titles=${region.wiki}&prop=langlinks&lllimit=500&format=json&redirects`).then(x => x.json()));
-		// 	const page2 = Object.values(translations2.query.pages)[0];
-		// 	for(const entry of [{ lang: "en", "*": page2.title }, ...page2.langlinks || []]) {
-		// 		const name = entry["*"];
-		// 		const lang = entry.lang;
-		// 		if(!region.names.includes(name)) {
-		// 			region.names.push(name);
-		// 		}
-		// 		if(entry.lang.length === 2) {
-		// 			region.langs[lang] = region.names.indexOf(name);
-		// 		}
-		// 	}
-		// }
 		row.regions = admin;
 		countries.push(row);
+		console.log("... done");
 	}
 	writeFileSync("./build/countries.json", JSON.stringify(countries, null, "\t"));
 	writeFileSync("./build/countries.min.json", JSON.stringify(countries));
