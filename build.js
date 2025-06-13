@@ -1,8 +1,10 @@
 "use strict";
 
-const { writeFileSync } = require("node:fs");
-const { gzipSync } = require("node:zlib");
+const { writeFileSync, mkdirSync, existsSync } = require("node:fs");
 const { decode } = require("he");
+
+const { compare, createMd } = require("./compare");
+const dry = process.argv.some(x => x.includes("dry"));
 
 // fetch with retry
 const f = (/** @type {string} */ url, /** @type {RequestInit} */ opts) => {
@@ -139,6 +141,14 @@ const missing = { // wikipedia links for missing regions
 	"US.VI": "United_States_Virgin_Islands"
 };
 
+if(!dry) {
+	const d = new Date().toISOString().split("T")[0];
+	if(existsSync(`./build/${d}/countries.min.json`)) {
+		console.log("up to date");
+		process.exit();
+	}
+}
+
 console.log("fetching country list");
 f("https://www.geonames.org/countries/").then(x => x.text()).then(async html => {
 	const countries = [];
@@ -152,7 +162,8 @@ f("https://www.geonames.org/countries/").then(x => x.text()).then(async html => 
 			f(`https://www.geonames.org/${row.iso}/administrative-division-${row.geonames}.html`).then(x => x.text())
 		]);
 		const data = parseNames(othernames);
-		row.wiki = getWikiLink(geopage);
+		row.geonames = getGeonamesId(row.geonames, geopage) || row.geonames;
+		row.wiki = row.iso === "LT" ? "Lithuania" : getWikiLink(geopage); // fix lithuania link
 		row.names = data.names;
 		row.langs = data.langs;
 		const translations = /** @type {Translations} */ (await f(`https://en.wikipedia.org/w/api.php?action=query&titles=${row.wiki}&prop=langlinks&lllimit=500&format=json&redirects`).then(x => x.json()));
@@ -202,23 +213,20 @@ f("https://www.geonames.org/countries/").then(x => x.text()).then(async html => 
 		countries.push(row);
 		console.log("... done");
 	}
-	writeFileSync("./build/countries.json", JSON.stringify(countries, null, "\t"));
-	writeFileSync("./build/countries.min.json", JSON.stringify(countries));
-	writeFileSync("./build/countries.min.json.gz", gzipSync(JSON.stringify(countries)));
+	const comp = compare(/** @type {Parameters<compare>[0]} */ (countries));
+	if(Object.keys(comp).length) {
+		if(!dry) {
+			const d = new Date().toISOString().split("T")[0];
+			mkdirSync(`./build/${d}`, { recursive: true });
+			writeFileSync(`./build/${d}/countries.json`, JSON.stringify(countries, null, "\t"));
+			writeFileSync(`./build/${d}/countries.min.json`, JSON.stringify(countries));
+			writeFileSync(`./build/${d}/changelog.md`, createMd(`Update ${d}`, comp));
+		}
+	} else {
+		console.log("no updates found");
+	}
 	console.log("Finished", `Total Countries: ${countries.length}`, `Total Regions: ${countries.reduce((a, t) => a + (t.regions?.length ?? 0), 0)}`);
 });
-
-/**
- * @typedef {(ReturnType<parseCountries>[0] & { wiki?: string, names?: string[], langs?: Record<string, number>, regions?: {}[] })[]} List
- */
-
-/**
- * @typedef {(ReturnType<parseDivisions>[0] & { country?: string, names?: string[], langs?: Record<string, number> })[]} Divisions
- */
-
-/**
- * @typedef {{ query: { pages: Record<string, { title: string, langlinks: { lang: string, "*": string }[] }> } }} Translations
- */
 
 /**
  * @param {string} html
@@ -365,6 +373,16 @@ function getWikiLink(html) {
 }
 
 /**
+ * @param {string} country
+ * @param {string} html
+ */
+function getGeonamesId(country, html) {
+	const r = new RegExp(`https://www.geonames.org/(\\w+)/${country.toLowerCase()}.html`);
+	const result = html.match(r);
+	return result?.[1];
+}
+
+/**
  * @param {string} row
  */
 function filterRow(row) {
@@ -373,3 +391,15 @@ function filterRow(row) {
 	if(index === -1) { return row; }
 	return row.slice(index + 1, row.indexOf("<", index)) || null;
 }
+
+/**
+ * @typedef {(ReturnType<parseCountries>[0] & { wiki?: string, names?: string[], langs?: Record<string, number>, regions?: {}[] })[]} List
+ */
+
+/**
+ * @typedef {(ReturnType<parseDivisions>[0] & { country?: string, names?: string[], langs?: Record<string, number> })[]} Divisions
+ */
+
+/**
+ * @typedef {{ query: { pages: Record<string, { title: string, langlinks: { lang: string, "*": string }[] }> } }} Translations
+ */
